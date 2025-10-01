@@ -1,11 +1,12 @@
 // screens/auth_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'home_screen.dart';
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  const AuthScreen({Key? key}) : super(key: key);
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -99,24 +100,34 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (kIsWeb) {
+        // Web-specific Google Sign-In
+        GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.setCustomParameters({'login_hint': 'user@example.com'});
 
-      if (googleUser == null) {
-        setState(() {
-          _isLoading = false;
-        });
-        return;
+        await _auth.signInWithPopup(googleProvider);
+      } else {
+        // Mobile Google Sign-In
+        final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+
+        if (googleUser == null) {
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
+
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
+
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        await _auth.signInWithCredential(credential);
       }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      await _auth.signInWithCredential(credential);
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -129,6 +140,10 @@ class _AuthScreenState extends State<AuthScreen> {
         message = 'Account exists with different credentials';
       } else if (e.code == 'invalid-credential') {
         message = 'Invalid credentials';
+      } else if (e.code == 'popup-closed-by-user') {
+        message = 'Sign-in popup was closed';
+      } else if (e.code == 'popup-blocked') {
+        message = 'Sign-in popup was blocked by browser';
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -138,8 +153,8 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('An unexpected error occurred'),
+          SnackBar(
+            content: Text('An unexpected error occurred: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
